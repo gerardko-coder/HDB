@@ -1,0 +1,29 @@
+name: Update carparks.json
+
+on:
+  workflow_dispatch:          # lets you run it manually from the Actions tab
+  schedule:
+    - cron: "0 2 1 * *"       # monthly, 1st at 02:00 UTC
+  push:
+    paths:
+      - build-carparks.mjs    # rebuild if the script changes
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node build-carparks.mjs
+      - name: Commit carparks.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add carparks.json
+          git diff --staged --quiet || git commit -m "Update carparks.json"
+          git push
