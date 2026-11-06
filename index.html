@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SG Carparks</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root { --bg:#f5f7fa; --panel:#fff; --text:#1f2933; --muted:#6b7785; --border:#e4e8ee; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111418; --panel:#1a1f26; --text:#e6eaf0; --muted:#8a94a3; --border:#2a313b; --accent:#60a5fa; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  body { display:flex; flex-direction:column; height:100%; }
+
+  header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px; background:var(--panel); border-bottom:1px solid var(--border); }
+  header h1 { font-size:1rem; margin:0; font-weight:600; white-space:nowrap; }
+  #status { font-size:.75rem; color:var(--muted); flex-basis:100%; text-align:center; order:3; min-height:1em; }
+  @media (min-width:900px) { #status { flex:1; flex-basis:auto; order:0; } }
+
+  .segmented { display:inline-flex; border:1px solid var(--accent); border-radius:999px; overflow:hidden; margin-left:auto; }
+  .segmented button { width:38px; height:34px; padding:0; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:transparent; color:var(--accent); }
+  .segmented button + button { border-left:1px solid var(--border); }
+  .segmented button.active { background:var(--accent); color:#fff; }
+  .segmented button svg, .icon { width:18px; height:18px; }
+
+  #locateBtn { width:36px; height:36px; padding:0; border-radius:50%; cursor:pointer; flex:none; border:1px solid var(--accent); background:var(--panel); color:var(--accent); display:flex; align-items:center; justify-content:center; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  #locateBtn svg { width:20px; height:20px; display:block; flex:none; }
+
+  main { flex:1; display:flex; flex-direction:column; min-height:0; }
+  #mapWrap { position:relative; flex:1 1 55%; min-height:300px; }
+  #map { position:absolute; inset:0; }
+
+  #legend { position:absolute; left:10px; bottom:24px; z-index:500; background:var(--panel); color:var(--text); border-radius:8px; padding:6px 8px; font-size:.72rem; box-shadow:0 1px 4px rgba(0,0,0,.25); max-width:70%; }
+  #legend .row { display:flex; gap:4px; align-items:center; }
+  #legend .swatch { display:inline-block; width:14px; height:10px; border-radius:2px; margin-right:2px; }
+  #legend .title { font-weight:600; margin-bottom:4px; }
+
+  aside { flex:1 1 45%; min-height:0; overflow-y:auto; background:var(--panel); border-top:1px solid var(--border); padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px)); }
+  aside h2 { font-size:.95rem; margin:0 0 8px; }
+  #search { width:100%; padding:9px 12px; margin-bottom:8px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:16px; }
+  #search:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  #nearby { list-style:none; padding:0; margin:0; }
+  #nearby li { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); font-size:.92rem; cursor:pointer; }
+  #nearby li:last-child { border-bottom:none; }
+  #nearby .name { font-weight:500; }
+  #nearby .dist { color:var(--muted); font-size:.8rem; }
+  .chip { min-width:64px; text-align:center; padding:4px 8px; border-radius:8px; font-weight:600; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.25); font-size:.85rem; white-space:nowrap; }
+  .empty { color:var(--muted); font-size:.9rem; cursor:default !important; }
+
+  .pin { transform:translate(-50%,-50%); display:flex; align-items:center; padding:3px 6px; border-radius:8px; color:#fff; font-size:12px; font-weight:700; white-space:nowrap; box-shadow:0 1px 4px rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.8); text-shadow:0 1px 2px rgba(0,0,0,.35); }
+  .pin.nearby { outline:2px solid var(--accent); outline-offset:1px; }
+  .pin.sel { outline:3px solid #111; outline-offset:2px; z-index:900; }
+
+  /* drill-in detail */
+  #back { background:none; border:none; color:var(--accent); font-size:.9rem; padding:0 0 8px; cursor:pointer; }
+  .d-code { font-size:.78rem; color:var(--muted); }
+  .d-name { font-size:1.05rem; font-weight:600; margin:2px 0 10px; }
+  .lot { margin-bottom:12px; }
+  .lot .top { display:flex; justify-content:space-between; align-items:baseline; font-size:.92rem; }
+  .lot .top b { font-size:1.15rem; }
+  .bar { height:8px; border-radius:4px; background:var(--border); overflow:hidden; margin-top:4px; }
+  .bar i { display:block; height:100%; border-radius:4px; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:12px 0 0; font-size:.85rem; }
+  dt { color:var(--muted); } dd { margin:0; text-align:right; }
+  .upd { font-size:.75rem; color:var(--muted); margin-top:10px; }
+
+  @media (min-width:900px) {
+    main { flex-direction:row; }
+    #mapWrap { flex:1 1 auto; min-height:0; }
+    aside { flex:0 0 340px; border-top:none; border-left:1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SG Carparks</h1>
+  <div class="segmented" id="modeSwitch" role="tablist" aria-label="Vehicle type"></div>
+  <button id="locateBtn" type="button" title="Near me" aria-label="Near me"></button>
+  <div id="status">Loading…</div>
+</header>
+
+<main>
+  <div id="mapWrap">
+    <div id="map"></div>
+    <div id="legend"></div>
+  </div>
+  <aside id="side"></aside>
+</main>
+
+<script>
+// ---------- Icons ----------
+const SVG = (inner) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+const ICONS = {
+  C: SVG(`<path d="M5 17h14M3 13l2-6h14l2 6v4H3z"/><circle cx="7.5" cy="14.5" r="1"/><circle cx="16.5" cy="14.5" r="1"/>`),
+  Y: SVG(`<circle cx="5.5" cy="16.5" r="3"/><circle cx="18.5" cy="16.5" r="3"/><path d="M8.5 16.5h4l3-7h-4M15.5 9.5l3 7M10 6h3"/>`),
+  H: SVG(`<path d="M2 6h12v10H2zM14 10h4l4 3v3h-8z"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="18" cy="17.5" r="1.8"/>`),
+  crosshair: SVG(`<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="1.5"/>`),
+};
+
+// ---------- Config ----------
+const MODES = { C: "Cars", Y: "Motorcycles", H: "Heavy vehicles" };
+const MODE_ORDER = ["C", "Y", "H"];
+const AVAIL_URL = "https://api.data.gov.sg/v1/transport/carpark-availability";
+const INFO_RESOURCE = "139a3035-e624-4f56-b63f-89ae28d4ae4c";   // HDB Carpark Information
+const INFO_URL = `https://data.gov.sg/api/action/datastore_search?resource_id=${INFO_RESOURCE}`;
+const SG_CENTER = [1.3521, 103.8198];
+const SG_BOUNDS = L.latLngBounds([1.15, 103.6], [1.48, 104.1]);
+const NEARBY_COUNT = 10;
+const REFRESH_MS = 60 * 1000;
+
+const BANDS = [
+  { color: "#ef4444", label: "Full",        test: (a, t, f) => a <= 0 },
+  { color: "#f97316", label: "Almost full", test: (a, t, f) => f <= 0.10 },
+  { color: "#eab308", label: "Limited",     test: (a, t, f) => f <= 0.30 },
+  { color: "#22c55e", label: "Plenty",      test: () => true },
+];
+const bandFor = (lot) => BANDS.find(b => b.test(lot.avail, lot.total, lot.total ? lot.avail / lot.total : 0));
+
+// ---------- State ----------
+let carparks = new Map();   // code -> { code, name, lat, lng, info{}, lots:{C:{avail,total}}, updated }
+let mode = "C", userLatLng = null, userMarker = null, selected = null;
+let map, dotLayer, pinLayer, selLayer, infoError = null, availError = null, lastUpdate = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const titleCase = (s) => String(s || "").toLowerCase().replace(/(^|[\s/(-])([a-z])/g, (m, p, c) => p + c.toUpperCase());
+const fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, rad = d => d * Math.PI / 180, dLat = rad(lat2 - lat1), dLon = rad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+const formatDistance = (km) => km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+
+// SVY21 (Singapore grid) -> WGS84
+function svy21ToLatLng(E, N) {
+  const a = 6378137, f = 1 / 298.257223563, oLat = 1.366666 * Math.PI / 180, oLon = 103.833333, oN = 38744.572, oE = 28001.642, k = 1;
+  const b = a * (1 - f), e2 = 2 * f - f * f, e4 = e2 * e2, e6 = e4 * e2;
+  const A0 = 1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256, A2 = 3 / 8 * (e2 + e4 / 4 + 15 * e6 / 128), A4 = 15 / 256 * (e4 + 3 * e6 / 4), A6 = 35 * e6 / 3072;
+  const Mo = a * (A0 * oLat - A2 * Math.sin(2 * oLat) + A4 * Math.sin(4 * oLat) - A6 * Math.sin(6 * oLat));
+  const Mp = Mo + (N - oN) / k;
+  const n = (a - b) / (a + b), n2 = n * n, n3 = n2 * n, n4 = n2 * n2;
+  const G = a * (1 - n) * (1 - n2) * (1 + 9 * n2 / 4 + 225 * n4 / 64) * Math.PI / 180;
+  const sg = Mp * Math.PI / (180 * G);
+  const lp = sg + (3 * n / 2 - 27 * n3 / 32) * Math.sin(2 * sg) + (21 * n2 / 16 - 55 * n4 / 32) * Math.sin(4 * sg) + 151 * n3 / 96 * Math.sin(6 * sg) + 1097 * n4 / 512 * Math.sin(8 * sg);
+  const s2 = Math.sin(lp) ** 2, rho = a * (1 - e2) / Math.pow(1 - e2 * s2, 1.5), v = a / Math.sqrt(1 - e2 * s2);
+  const ps = v / rho, ps2 = ps * ps, ps3 = ps2 * ps, ps4 = ps2 * ps2, t = Math.tan(lp), t2 = t * t, t4 = t2 * t2, t6 = t4 * t2;
+  const Ep = E - oE, x = Ep / (k * v), x3 = x ** 3, x5 = x ** 5, x7 = x ** 7, lf = t / (k * rho);
+  const lat = lp - lf * (Ep * x / 2)
+    + lf * (Ep * x3 / 24) * (-4 * ps2 + 9 * ps * (1 - t2) + 12 * t2)
+    - lf * (Ep * x5 / 720) * (8 * ps4 * (11 - 24 * t2) - 12 * ps3 * (21 - 71 * t2) + 15 * ps2 * (15 - 98 * t2 + 15 * t4) + 180 * ps * (5 * t2 - 3 * t4) + 360 * t4)
+    + lf * (Ep * x7 / 40320) * (1385 + 3633 * t2 + 4095 * t4 + 1575 * t6);
+  const sec = 1 / Math.cos(lat);
+  const lon = oLon * Math.PI / 180 + x * sec - x3 * sec / 6 * (ps + 2 * t2)
+    + x5 * sec / 120 * (-4 * ps3 * (1 - 6 * t2) + ps2 * (9 - 68 * t2) + 72 * ps * t2 + 24 * t4)
+    - x7 * sec / 5040 * (61 + 662 * t2 + 1320 * t4 + 720 * t6);
+  return [lat * 180 / Math.PI, lon * 180 / Math.PI];
+}
+
+// ---------- Data ----------
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), ms))]);
+
+// JSONP fallback (only works if the endpoint honours ?callback=)
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = "cb_" + Math.random().toString(36).slice(2), s = document.createElement("script");
+    const done = () => { delete window[cb]; s.remove(); };
+    window[cb] = (d) => { done(); resolve(d); };
+    s.onerror = () => { done(); reject(new Error("JSONP failed")); };
+    s.src = `${url}&callback=${cb}`;
+    document.head.appendChild(s);
+  });
+}
+
+async function loadLive() {
+  const out = [];
+  let offset = 0, total = Infinity;
+  while (offset < total) {
+    const url = `${INFO_URL}&limit=1000&offset=${offset}`;
+    let json;
+    try {
+      const res = await withTimeout(fetch(url), 10000);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      json = await res.json();
+    } catch (e) { json = await withTimeout(jsonp(url), 10000); }
+    if (!json || !json.success) throw new Error("Carpark info request failed");
+    total = json.result.total;
+    const recs = json.result.records || [];
+    for (const r of recs) {
+      const E = Number(r.x_coord), N = Number(r.y_coord);
+      if (!r.car_park_no || !E || !N) continue;
+      const [lat, lng] = svy21ToLatLng(E, N);
+      out.push({ code: r.car_park_no.trim().toUpperCase(), name: titleCase(r.address), lat, lng, info: r });
+    }
+    offset += recs.length;
+    if (!recs.length) break;
+  }
+  return out;
+}
+
+async function loadInfo() {
+  let list = null;
+  // 1. Static file next to index.html (same origin, so no cross-origin problems). Made by build-carparks.mjs.
+  try {
+    const res = await fetch("./carparks.json", { cache: "no-cache" });
+    if (res.ok) { const arr = await res.json(); if (Array.isArray(arr) && arr.length) list = arr; }
+  } catch (e) { console.warn("carparks.json not available", e); }
+  // 2. Live from data.gov.sg (may be blocked by the browser's cross-origin rules)
+  if (!list) {
+    try { list = await loadLive(); }
+    catch (e) { console.error(e); throw new Error("no carpark locations (add carparks.json)"); }
+  }
+  const out = new Map();
+  for (const cp of list) out.set(cp.code, { ...cp, lots: {}, updated: null });
+  return out;
+}
+
+async function loadAvailability() {
+  const res = await fetch(AVAIL_URL);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const item = (json.items || [])[0] || {};
+  lastUpdate = item.timestamp || null;
+  for (const c of item.carpark_data || []) {
+    const cp = carparks.get(c.carpark_number);
+    if (!cp) continue;
+    cp.lots = {};
+    for (const i of c.carpark_info || []) {
+      const key = i.lot_type === "M" ? "Y" : i.lot_type;
+      cp.lots[key] = { avail: Number(i.lots_available) || 0, total: Number(i.total_lots) || 0 };
+    }
+    cp.updated = c.update_datetime;
+  }
+}
+
+// ---------- Map drawing ----------
+function nearbyList() {
+  if (!userLatLng) return [];
+  return [...carparks.values()].filter(c => c.lots[mode])
+    .map(c => ({ ...c, distKm: haversineKm(userLatLng[0], userLatLng[1], c.lat, c.lng) }))
+    .sort((a, b) => a.distKm - b.distKm).slice(0, NEARBY_COUNT);
+}
+
+function pinIcon(cp, extra = "") {
+  const lot = cp.lots[mode];
+  return L.divIcon({ className: "", iconSize: null, html: `<div class="pin ${extra}" style="background:${bandFor(lot).color}">${lot.avail}</div>` });
+}
+
+function renderMap() {
+  dotLayer.clearLayers(); pinLayer.clearLayers(); selLayer.clearLayers();
+  const near = new Set(nearbyList().map(c => c.code));
+  for (const cp of carparks.values()) {
+    const lot = cp.lots[mode];
+    if (!lot || cp.code === selected) continue;
+    if (near.has(cp.code)) {
+      L.marker([cp.lat, cp.lng], { icon: pinIcon(cp, "nearby"), zIndexOffset: 500 }).on("click", () => select(cp.code)).addTo(pinLayer);
+    } else {
+      const c = bandFor(lot).color;
+      L.circleMarker([cp.lat, cp.lng], { radius: 5, color: "#fff", weight: 1, fillColor: c, fillOpacity: .95 }).on("click", () => select(cp.code)).addTo(dotLayer);
+    }
+  }
+  const sel = selected && carparks.get(selected);
+  if (sel && sel.lots[mode]) L.marker([sel.lat, sel.lng], { icon: pinIcon(sel, "sel"), zIndexOffset: 1000 }).addTo(selLayer);
+}
+
+function renderLegend() {
+  $("legend").innerHTML = `<div class="title">${MODES[mode]}: lots free</div>` +
+    BANDS.map(b => `<div class="row"><span class="swatch" style="background:${b.color}"></span>${b.label}</div>`).join("");
+}
+
+// ---------- Side panel ----------
+function chipHtml(cp) {
+  const lot = cp.lots[mode];
+  return `<div class="chip" style="background:${bandFor(lot).color}">${lot.avail} / ${lot.total}</div>`;
+}
+
+function renderList(query = "") {
+  const q = query.trim().toUpperCase();
+  let rows, title, empty;
+  if (q) {
+    rows = [...carparks.values()].filter(c => c.code.includes(q) || c.name.toUpperCase().includes(q)).slice(0, 15)
+      .map(c => ({ ...c, distKm: userLatLng ? haversineKm(userLatLng[0], userLatLng[1], c.lat, c.lng) : null }));
+    title = "Search results"; empty = "No matching carparks.";
+  } else {
+    rows = nearbyList(); title = userLatLng ? `Nearest carparks · ${MODES[mode].toLowerCase()}` : "Nearby";
+    empty = infoError ? "Couldn’t load carpark locations. Run build-carparks.mjs with Node to create carparks.json, and put it next to index.html."
+      : userLatLng ? `No ${MODES[mode].toLowerCase()} lots reported nearby.` : "Allow location access to see carparks near you, or search above.";
+  }
+  $("nearbyTitle").textContent = title;
+  $("nearby").innerHTML = rows.length ? rows.map(c => `
+    <li data-code="${esc(c.code)}">
+      <div><div class="name">${esc(c.name)}</div>
+      <div class="dist">${esc(c.code)}${c.distKm != null ? ` · ${formatDistance(c.distKm)} away` : ""}</div></div>
+      ${c.lots[mode] ? chipHtml(c) : `<div class="chip" style="background:#94a3b8">n/a</div>`}
+    </li>`).join("") : `<li class="empty">${empty}</li>`;
+  $("nearby").querySelectorAll("li[data-code]").forEach(li => li.addEventListener("click", () => select(li.dataset.code, true)));
+}
+
+function renderSide() {
+  if (selected) return renderDetail();
+  $("side").innerHTML = `<h2 id="nearbyTitle">Nearby</h2><input id="search" type="search" placeholder="Search carpark code or address" autocomplete="off"><ol id="nearby"></ol>`;
+  $("search").addEventListener("input", (e) => renderList(e.target.value));
+  renderList();
+}
+
+const YN = (v) => ({ YES: "Yes", Y: "Yes", NO: "No", N: "No" }[String(v).toUpperCase()] || v || "—");
+function renderDetail() {
+  const cp = carparks.get(selected), i = cp.info;
+  const lots = Object.keys(MODES).filter(k => cp.lots[k]).map(k => {
+    const lot = cp.lots[k], b = bandFor(lot), pct = lot.total ? Math.round(lot.avail / lot.total * 100) : 0;
+    return `<div class="lot"><div class="top"><span>${MODES[k]}</span><span><b style="color:${b.color}">${lot.avail}</b> / ${lot.total} lots · ${b.label}</span></div>
+      <div class="bar"><i style="width:${pct}%;background:${b.color}"></i></div></div>`;
+  }).join("") || `<div class="empty">No live availability reported for this carpark.</div>`;
+  $("side").innerHTML = `
+    <button id="back" type="button">← Back to list</button>
+    <div class="d-code">Carpark ${esc(cp.code)}</div>
+    <div class="d-name">${esc(cp.name)}</div>
+    ${lots}
+    <dl>
+      <dt>Type</dt><dd>${esc(titleCase(i.car_park_type))}</dd>
+      <dt>Parking system</dt><dd>${esc(titleCase(i.type_of_parking_system))}</dd>
+      <dt>Short-term parking</dt><dd>${esc(i.short_term_parking === "NO" ? "Not allowed" : titleCase(i.short_term_parking))}</dd>
+      <dt>Free parking</dt><dd>${esc(i.free_parking === "NO" ? "None" : i.free_parking)}</dd>
+      <dt>Night parking</dt><dd>${esc(YN(i.night_parking))}</dd>
+      <dt>Decks</dt><dd>${esc(i.car_park_decks || "—")}</dd>
+      <dt>Gantry height</dt><dd>${esc(i.gantry_height ? i.gantry_height + " m" : "—")}</dd>
+      <dt>Basement</dt><dd>${esc(YN(i.car_park_basement))}</dd>
+    </dl>
+    <div class="upd">Updated ${fmtTime(cp.updated) || "—"}${userLatLng ? ` · ${formatDistance(haversineKm(userLatLng[0], userLatLng[1], cp.lat, cp.lng))} away` : ""}</div>`;
+  $("back").addEventListener("click", () => { selected = null; render(); });
+}
+
+function select(code, fly = false) {
+  const cp = carparks.get(code);
+  if (!cp) return;
+  selected = code;
+  if (fly || map.getZoom() < 16) map.flyTo([cp.lat, cp.lng], Math.max(map.getZoom(), 16), { duration: .6 });
+  render();
+  $("side").scrollTop = 0;
+}
+
+// ---------- Render & mode ----------
+function render() { renderLegend(); renderMap(); renderSide(); }
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("#modeSwitch button").forEach(b => {
+    const active = b.dataset.mode === mode;
+    b.classList.toggle("active", active); b.setAttribute("aria-selected", active);
+  });
+  render(); updateStatus();
+}
+
+function buildModeSwitch() {
+  const wrap = $("modeSwitch");
+  wrap.innerHTML = MODE_ORDER.map(k => `<button type="button" data-mode="${k}" title="${MODES[k]}" aria-label="${MODES[k]}" role="tab">${ICONS[k]}</button>`).join("");
+  wrap.querySelectorAll("button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.mode)));
+}
+
+function updateStatus() {
+  const n = [...carparks.values()].filter(c => c.lots[mode]).length;
+  const problems = [infoError && `couldn’t load carpark locations`, availError && `couldn't load availability`].filter(Boolean);
+  const t = lastUpdate ? fmtTime(lastUpdate) : new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  $("status").textContent = `${n} carparks · updated ${t}${problems.length ? " · " + problems.join(" · ") : ""}`;
+}
+
+// ---------- Geolocation ----------
+function locateUser(auto = false) {
+  if (!window.isSecureContext) { $("status").textContent = "Location needs a secure (https) page"; return; }
+  if (!navigator.geolocation) { $("status").textContent = "Location is not supported by this browser"; return; }
+  if (!auto) $("status").textContent = "Finding your location…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      userLatLng = [pos.coords.latitude, pos.coords.longitude];
+      if (userMarker) userMarker.remove();
+      userMarker = L.circleMarker(userLatLng, { radius: 8, color: "#fff", weight: 2, fillColor: "#2563eb", fillOpacity: 1 }).addTo(map).bindPopup("You are here");
+      map.flyTo(userLatLng, 16, { duration: 1 });
+      render(); updateStatus();
+    },
+    (err) => {
+      if (auto) { updateStatus(); return; }
+      const messages = { 1: "Location blocked. Allow it for this site in your browser settings, then tap again.", 2: "Couldn’t determine your location. Check that location is on.", 3: "Location timed out. Tap the button to try again." };
+      $("status").textContent = messages[err.code] || "Could not get your location";
+    },
+    { enableHighAccuracy: false, timeout: 15000, maximumAge: 300000 }
+  );
+}
+
+// ---------- Refresh ----------
+async function refreshAvailability() {
+  try { await loadAvailability(); availError = null; }
+  catch (e) { console.error(e); availError = e.message; }
+  render(); updateStatus();
+}
+
+// ---------- Init ----------
+async function init() {
+  map = L.map("map", { center: SG_CENTER, zoom: 11, minZoom: 10, maxBounds: SG_BOUNDS.pad(0.3), preferCanvas: true });
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+    maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin",
+    attribution: 'Tiles &copy; <a href="https://www.esri.com">Esri</a>, HERE, Garmin, OpenStreetMap contributors',
+  }).addTo(map);
+  map.fitBounds(SG_BOUNDS);
+  dotLayer = L.layerGroup().addTo(map); pinLayer = L.layerGroup().addTo(map); selLayer = L.layerGroup().addTo(map);
+
+  buildModeSwitch();
+  $("locateBtn").innerHTML = ICONS.crosshair;
+  $("locateBtn").addEventListener("click", () => locateUser(false));
+  setMode(mode);
+
+  try { carparks = await loadInfo(); }
+  catch (e) { console.error(e); infoError = e.message; render(); updateStatus(); return; }
+  await refreshAvailability();
+  locateUser(true);
+  setInterval(refreshAvailability, REFRESH_MS);
+}
+init();
+</script>
+</body>
+</html>
